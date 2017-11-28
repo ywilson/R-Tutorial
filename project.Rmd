@@ -1,0 +1,275 @@
+---
+title: "Project"
+author: "Yasmeen Wilson"
+date: "May 23, 2017"
+output: html_document
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+#install.packages("rvest", repos="http://cran.rstudio.com/")
+#install.packages("colorspace", repos="http://cran.rstudio.com/")
+#install.packages("plotly", repos="http://cran.rstudio.com/")
+#install.packages("ggplot2", repos="http://cran.rstudio.com/")
+#install.packages("DT", repos="http://cran.rstudio.com/")
+#install.packages("curl", repos="http://cran.rstudio.com/")
+#install.packages("XML", repos="http://cran.rstudio.com/")
+#install.packages("varhandle", repos="http://cran.rstudio.com/ )
+
+```
+
+```{r, include=FALSE}
+library(rvest)
+library(stringr)
+library(DT)
+library(tidyr)
+library(dplyr)
+library(curl)
+library(varhandle)
+library(lattice)
+```
+
+##Does the number of reviewers of the top movies on IMBD and Rotten Tomatoes have a correlation to the rating of the movie?
+
+###Scraping of Data
+
+First, I scraped both IMBd and Rotten Tomatoes in order to put the movie titles, ratings, and number of reviewers in a data frame.
+
+##IMBD
+```{r}
+
+IMBD_Movies <- html_session("http://www.imdb.com/chart/top")
+
+#Scrapes the movie Titles
+
+movieTitles <- IMBD_Movies %>% 
+  html_nodes(".titleColumn a")%>%
+  html_text()
+
+#Puts the movie titles in a matrix so that they can be ordered and put into a data frame.
+#Once in a data frame, they can be combined with other information about the movie in a datatable
+movieMat <- matrix(movieTitles, ncol = 1, byrow = TRUE)
+moviedf <- as.data.frame(movieMat)
+colnames(moviedf) <- c("Movie")
+
+numOfReviews <- list()
+
+#Follows each movies linke and obtains the number of reviewers
+for (i in movieTitles){
+  moviePage <- IMBD_Movies %>% follow_link(i) %>% read_html()
+  numOfReviews[[i]]$numReviews <-moviePage%>%
+    html_nodes("#title-overview-widget .small")%>%html_text()
+}
+
+#Regex for unwanted characters
+numOfReviews <- gsub("[^0-9]|[[:space:]]", "", numOfReviews)
+
+numMat <- matrix(numOfReviews, ncol = 1, byrow = TRUE)
+numdf <- as.data.frame(numMat)
+colnames(numdf) <- c("Number of Reviews")
+
+IMBD_rating <- IMBD_Movies %>%
+  html_nodes("strong")%>%
+  html_text()
+
+rateMat <- matrix(IMBD_rating, ncol = 1, byrow = TRUE)
+ratedf <- as.data.frame(rateMat)
+colnames(ratedf) <- c("Rating")
+
+#Combines information about the movies and puts them in a data table
+moviecomb <- cbind(moviedf, ratedf, numdf)
+datatable(moviecomb)
+
+```
+
+##Rotten Tomatoes
+```{r}
+RT_Movies <- html_session("https://www.rottentomatoes.com/top/bestofrt/")
+
+RT_movieTitles <- RT_Movies %>%
+  html_nodes("#top_movies_main .articleLink")%>%
+  html_text()
+
+#Removes leading blank space and newline character
+RT_movieTitles <- str_trim(gsub("[\r\n]"," ",RT_movieTitles))
+
+
+RT_rate <- list()
+RT_num <- list()
+
+#Follows the link for all movies and obtains the audience rating
+for(i in RT_movieTitles){
+  ratingPage <- RT_Movies %>% follow_link(i) %>% read_html()
+  RT_rate[[i]]$rating <- ratingPage %>%
+    html_nodes(".meter-value .superPageFontColor") %>% html_text()
+}
+
+RT_rate <- gsub("[^0-9]", "", RT_rate)
+
+#Follows the link for all movies and obtains the number of audience reviewers
+for (i in RT_movieTitles){
+  reviewNum <- RT_Movies %>% follow_link(i) %>% read_html()
+  RT_num[[i]]$numReviewers <- reviewNum %>%
+    html_nodes(".superPageFontColor div+ div") %>% html_text()
+}
+
+RT_num <- gsub("[^0-9]", "", RT_num)
+
+RankMat <- matrix(RT_rate, ncol = 1, byrow = TRUE)
+Rankdf <- as.data.frame(RankMat)
+colnames(Rankdf) <- c("Audience Rating by percentage")
+
+MTmat <- matrix(RT_movieTitles, ncol = 1, byrow = TRUE)
+MTdf <- as.data.frame(MTmat)
+colnames(MTdf) <- c("Top Movies")
+
+URmat <- matrix(RT_num, ncol = 1, byrow = TRUE)
+URdf <- as.data.frame(URmat)
+colnames(URdf) <- c("Number of Reviews")
+
+
+movieRate <- cbind(MTdf, Rankdf, URdf)
+movieRate <- datatable(movieRate)
+
+```
+
+For both sets of data, we use the simple linear model with the quantitative response variable (Y) being the rating of the film and the quantitative explanatory variable (x) being the number of reviewers.
+
+```{r}
+#Here we estimate the least squares line for predicting rating based on the number of reviewers on the Rotten Tomatoes data.
+
+
+#In order to perform linear regression on the data, they must be classed as numeric
+RT_num <- as.numeric(as.character(RT_num))
+RT_rate <- as.numeric(as.character(RT_rate))
+
+#Combines all variables, but in a data frame so that they can be summarized.
+dataComb <- cbind(RT_movieTitles, RT_rate, RT_num)
+dataComb <- as.data.frame(dataComb)
+dataComb
+
+#Code does not work as it still sees RT_num and RT_rate as factors
+##lm(RT_rate ~ RT_num, data = dataComb)
+
+#In order to bypass this, I wrote the data into a csv
+
+##write.csv(dataComb, file = "Rotten_Tomatoes.csv")
+
+```
+
+```{r}
+IMBD_DataComb <- cbind(movieTitles, IMBD_rating, numOfReviews)
+IMBD_DataComb <- as.data.frame(IMBD_DataComb)
+IMBD_DataComb
+##write.csv(IMBD_DataComb, file = "IMBD.csv")
+
+```
+
+##Interpretation of Data
+
+###Rotten Tomatoes
+```{r}
+lm(RT_rate ~ RT_num, data = Rotten_Tomatoes)
+```
+
+Here we get our regression equation
+$\widehat{Rating}$ = 89.74 + (-3.173 x $10^{-7}$) (# of reviewers)
+
+This suggests that if the number of reviewers were to increase by 1, then the rating of the movie will decrease by -3.173 x $10^{-7}$
+
+```{r}
+#Plot to visualize relationship
+xyplot(RT_rate ~ RT_num, 
+       grid = TRUE,
+       xlab = "Number of Audience Reviewers",
+       ylab = "Rating by percentage",
+       data = Rotten_Tomatoes, type = c("p","r"))
+```
+
+Here we see no clear relationship between rating of the film and number of audience members that reviewed the film.
+
+```{r}
+summary(lm(RT_rate ~ RT_num, data = Rotten_Tomatoes))
+```
+####Hypothesis Test and $R^{2}$ interpretation
+
+$R^{2}$ = 0.06334
+p-value = 0.01154
+
+$H_{0}$ = The number of audience reviewers has no effect on the rating of a film
+$H_{a}$ = The number of audience reviewers does have an effect on the rating of the film
+
+With a p-value of 0.01154, we do not have significant evidence the reject the null hypothesis that the number of audience reviewers has no effect on the rating of a film.
+
+Roughly, 6.334% of the variance in the response variable (rating), can be explained by the predictor variable (# of audience reviewers).
+
+###IMBD
+```{r}
+lm(IMBD_rating ~ numOfReviews, data = IMBD)
+```
+
+Our regression equation
+$\widehat{Rating}$ = 80.93 + .0000004042 (# of reviewers)
+
+Here we see that if the number of reviewers increases by 1, the rating of the movie will increase by 4.042 x $10^{-7}$.
+
+```{r}
+#Plot to visualize relationship
+xyplot(IMBD_rating ~ numOfReviews, 
+       grid = TRUE,
+       xlab = "Number of Audience Reviewers",
+       ylab = "Rating out of 10",
+       data = IMBD, type = c("p","r"))
+
+```
+
+Here we see a much stronger positive linear relationship between number of audience reviewers and the rating a film receives. 
+
+```{r}
+summary(lm(IMBD_rating ~ numOfReviews, data = IMBD))
+
+```
+
+####Hypothesis Test and $R^{2}$ interpretation
+
+$R^{2}$ = 0.3925
+p-value = 2.2 x $10^{-16}$
+
+$H_{0}$ = The number of audience reviewers has no effect on the rating of a film
+$H_{a}$ = The number of audience reviewers does have an effect on the rating of the film
+
+With a p-value of 2.2 x $10^{-16}$ , we have strong evidence to reject the null hypothesis that the number of audience reviewers has no effect on the rating of a film.
+
+Roughly, 39.25% of the variance in the response variable (rating), can be explained by the predictor variable (# of audience reviewers).
+
+###Conclusion
+
+Though both websites provide ratings for films with consideration to audience reception, it appears that IMBD is the site to gauge the "Top Movies" in accordance with the general public. 
+
+It should be noted that Rotten Tomatoes favors listing Top Films by critic ratings. On their site, they state "Each critic from our discrete list gets one vote, weighted equally. A movie must have 40 or more rated reviews to be considered. The 'Adjusted Score' comes from a weighted formula (Bayesian) that we use that accounts for variation in the number of reviews per movie.".
+
+This could probably by the explanation as to why number of audience reviewers is a good predictor in ratings of top films on IMBD but not on Rotten Tomatoes.
+
+
+
+###(Disregard) Attempt at using genre as a predictor, I left it however because it took me a while to figure out and I didn't want my work to be wasted :p
+
+```{r}
+
+genres <- c("Adventure", "Animation" , "Action", "Comedy", "Drama", "Horror", "Western")
+
+
+IMBD_genres <- list()
+
+for(i in movieTitles){
+  genrePage <- IMBD_Movies %>% follow_link(i)
+  IMBD_genres[[i]]$genre <- genrePage%>%
+    html_nodes(".subtext .itemprop") %>% html_text()
+  IMBD_genres[[i]]$genre <- IMBD_genres[[i]]$genre[which(IMBD_genres[[i]]$genre 
+                            %in% genres)]
+}
+ 
+IMBD_genres
+
+```
+
