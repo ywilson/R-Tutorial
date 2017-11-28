@@ -1,0 +1,16 @@
+---
+title: "Adv 1"
+author: "Yasmeen Wilson"
+date: "November 28, 2017"
+output: html_document
+---
+
+## Data!
+
+```{r}
+
+Auto_df <- read.csv("Auto.csv")
+Auto_df
+
+##wow
+```
